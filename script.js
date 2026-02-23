@@ -237,10 +237,11 @@ function initCounterAnimations() {
             
             const raw = el.textContent;
             const hasComma = raw.includes(',');
-            const num = Math.floor(current);
-            el.textContent = hasComma 
-                ? num.toLocaleString() + suffix.replace(/\d+/g, '')
-                : num + suffix.replace(/\d+/g, '');
+            const isFloat = raw.includes('.');
+            const num = isFloat ? current.toFixed(1) : Math.floor(current);
+            el.textContent = hasComma && !isFloat
+                ? Number(num).toLocaleString() + suffix.replace(/[\d.,]+/g, '')
+                : num + suffix.replace(/[\d.,]+/g, '');
         }, 16);
     };
 
@@ -249,10 +250,10 @@ function initCounterAnimations() {
             if (entry.isIntersecting) {
                 const el = entry.target;
                 const raw = el.textContent;
-                const match = raw.match(/[\d,]+/);
+                const match = raw.match(/[\d.,]+/);
                 if (!match) return;
-                const target = parseInt(match[0].replace(/,/g, ''));
-                const suffix = raw.replace(/[\d,]/g, '');
+                const target = parseFloat(match[0].replace(/,/g, ''));
+                const suffix = raw.replace(/[\d.,]+/g, '');
                 animateCounter(el, target, suffix);
                 observer.unobserve(el);
             }
