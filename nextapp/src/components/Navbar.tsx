@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 
 export default function Navbar() {
@@ -26,6 +27,7 @@ export default function Navbar() {
     { href: "#services", label: "Services" },
     { href: "#about", label: "About" },
     { href: "#contact", label: "Contact" },
+    { href: "/dashboard", label: "Dashboard" },
   ];
 
   return (
@@ -54,9 +56,26 @@ export default function Navbar() {
           ))}
         </ul>
 
-        <Button asChild className="hidden md:inline-flex bg-teal-700 hover:bg-teal-800">
-          <Link href="#contact">Get Started</Link>
-        </Button>
+        <div className="hidden md:flex items-center gap-3">
+          <SignedOut>
+            <Button asChild variant="ghost" className="text-slate-600 hover:text-teal-700">
+              <Link href="/sign-in">Sign In</Link>
+            </Button>
+            <Button asChild className="bg-teal-700 hover:bg-teal-800">
+              <Link href="/sign-up">Sign Up</Link>
+            </Button>
+          </SignedOut>
+          <SignedIn>
+            <UserButton
+              afterSignOutUrl="/"
+              appearance={{
+                elements: {
+                  avatarBox: "w-9 h-9",
+                },
+              }}
+            />
+          </SignedIn>
+        </div>
 
         <button
           onClick={() => setMenuOpen(!menuOpen)}
@@ -84,9 +103,19 @@ export default function Navbar() {
               </li>
             ))}
           </ul>
-          <Button asChild className="mt-4 w-full bg-teal-700 hover:bg-teal-800">
-            <Link href="#contact">Get Started</Link>
-          </Button>
+          <SignedOut>
+            <Button asChild variant="outline" className="mt-2 w-full">
+              <Link href="/sign-in" onClick={() => setMenuOpen(false)}>Sign In</Link>
+            </Button>
+            <Button asChild className="mt-2 w-full bg-teal-700 hover:bg-teal-800">
+              <Link href="/sign-up" onClick={() => setMenuOpen(false)}>Sign Up</Link>
+            </Button>
+          </SignedOut>
+          <SignedIn>
+            <div className="mt-4 flex justify-center">
+              <UserButton afterSignOutUrl="/" />
+            </div>
+          </SignedIn>
         </div>
       )}
     </nav>

@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Clinic {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  phone     String?
+  email     String?
+  timezone  String   @default("America/Toronto")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  queueEntries QueueEntry[]
+  appointments Appointment[]
+}
+
+model Patient {
+  id        String   @id @default(cuid())
+  clerkId   String?  @unique
+  firstName String
+  lastName  String
+  email     String
+  phone     String?
+  language  String   @default("en")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  queueEntries  QueueEntry[]
+  appointments Appointment[]
+}
+
+model QueueEntry {
+  id                    String   @id @default(cuid())
+  clinicId              String
+  patientId             String?
+  patientName           String
+  patientPhone          String?
+  status                String   @default("waiting")
+  checkInTime           DateTime @default(now())
+  estimatedWaitMinutes  Int      @default(0)
+  notes                 String?
+  priority              Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+}
+
+model Appointment {
+  id            String   @id @default(cuid())
+  clinicId      String
+  patientId     String?
+  patientName   String?
+  patientEmail  String?
+  scheduledTime DateTime
+  duration      Int      @default(15)
+  type          String   @default("appointment")
+  status        String   @default("scheduled")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+}
