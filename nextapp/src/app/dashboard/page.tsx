@@ -81,7 +81,7 @@ export default function Dashboard() {
 
     setCheckingIn(true)
     try {
-      const res = await fetch("/api/queue-entry/check-in", {
+      const res = await fetch("/api/queue/check-in", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -213,7 +213,7 @@ export default function Dashboard() {
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg">
                   <div className="text-3xl font-bold text-purple-700">
-                    ~{queue.length * 6}
+                    ~{queue.filter(e => e.status === "waiting").length * 6}
                   </div>
                   <div className="text-sm text-purple-600">Est. Wait (min)</div>
                 </div>
@@ -256,7 +256,10 @@ export default function Dashboard() {
                           ? "Ready for appointment"
                           : entry.status === "in-progress"
                           ? "Currently being seen"
-                          : `Wait: ~${entry.actualWaitMinutes} min`}
+                          : `Est. Wait: ~${
+                              queue.filter(e => e.status === "waiting" || e.status === "in-progress")
+                                   .findIndex(e => e.id === entry.id) * 6
+                            } min`}
                       </div>
                     </div>
                     <span
