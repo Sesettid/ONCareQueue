@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+import { auth } from '@clerk/nextjs/server'
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { entryId: string } }
 ) {
   try {
+    const { userId, sessionClaims } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    
+    const role = (sessionClaims?.metadata as any)?.role || 'staff';
+    if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
     const { entryId } = params
     const body = await request.json()
     const { status, notes } = body
@@ -35,6 +43,12 @@ export async function DELETE(
   { params }: { params: { entryId: string } }
 ) {
   try {
+    const { userId, sessionClaims } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    
+    const role = (sessionClaims?.metadata as any)?.role || 'staff';
+    if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
     const { entryId } = params
     await prisma.queueEntry.delete({ where: { id: entryId } })
     return NextResponse.json({ success: true })

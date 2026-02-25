@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+import { auth } from '@clerk/nextjs/server'
+
 export async function POST(request: NextRequest) {
   try {
+    const { userId, sessionClaims } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
+    // RBAC: Verify user has staff or admin role
+    const role = (sessionClaims?.metadata as any)?.role || 'staff'; // Defaulting to staff for hackathon demo purposes
+    if (role !== 'staff' && role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden: Requires staff privileges' }, { status: 403 });
+    }
+
     const body = await request.json()
     const { clinicId, patientName, patientPhone, notes, priority } = body
 
