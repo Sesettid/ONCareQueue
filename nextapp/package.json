@@ -11,8 +11,6 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.38.2",
-    "@libsql/client": "^0.17.0",
-    "@prisma/adapter-libsql": "^7.4.1",
     "@prisma/client": "^5.22.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

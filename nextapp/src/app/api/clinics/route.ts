@@ -18,8 +18,16 @@ export async function GET() {
   }
 }
 
+import { auth } from '@clerk/nextjs/server'
+
 export async function POST(request: Request) {
   try {
+    const { userId, sessionClaims } = await auth();
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    
+    const role = (sessionClaims?.metadata as any)?.role || 'staff';
+    if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
     const body = await request.json()
     const { name, address, phone, email } = body
 

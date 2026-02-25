@@ -4,22 +4,22 @@ ONCareQueue - Route Architecture & Security Overview
 
 ## Public Routes (Patient-Facing)
 - GET / : Landing page and marketing site
-- GET /find-clinic : Clinic locator
-- GET /api/clinics : List all available clinics
-- GET /api/clinics/[clinicId]/queue : Live queue board. Publicly accessible so patients can check their real-time estimated wait times without needing to log in.
+- GET /find-clinic : Clinic locator where patients can select their clinic
+- GET /clinic/[id] : Public Live Queue viewer. Patients can view their anonymized queue status.
+- GET /api/clinics : List all available clinics (Read-only API)
+- GET /api/clinics/[clinicId]/queue : Live queue board API. Anonymizes patient names and scrubs phone numbers if the requester is unauthenticated.
 
 ## Protected Routes (Staff/Admin-Facing)
 *Secured via Clerk Middleware. Unauthenticated access redirects to /sign-in.*
 - GET /dashboard : Core clinic staff dashboard for queue management
-- POST /api/clinics : Create new clinic profiles
-- POST /api/queue/check-in : Check in a new patient and calculate initial wait
-- PATCH /api/queue-entry/[entryId] : Update patient status (ready, in-progress, completed)
-- DELETE /api/queue-entry/[entryId] : Remove a patient from the queue
+- POST /api/clinics : Create new clinic profiles (Enforces Staff/Admin RBAC via route handler)
+- POST /api/queue/check-in : Check in a new patient (Enforces Staff/Admin RBAC)
+- PATCH /api/queue-entry/[entryId] : Update patient status (Enforces Staff/Admin RBAC)
+- DELETE /api/queue-entry/[entryId] : Remove a patient from the queue (Enforces Staff/Admin RBAC)
 - GET /api/seed : Developer seed script
 
-# Security & PHIPA Compliance Controls
-- Authentication & Authorization: Enforced universally at the edge via Clerk Next.js middleware.
-- Data Minimization: We only collect essential workflow data (first/last name, optional phone). No extended medical history or diagnostics are stored in this microservice.
-- At-Rest Encryption: Data is securely stored using Supabase PostgreSQL which enforces at-rest encryption.
-- Audit Logging: Built-in timestamp tracking (createdAt, updatedAt) via Prisma schema for all queue modifications and patient lifecycles.
-- Network Security: API routes run securely on Vercel's serverless edge, utilizing connection pooling (pgbouncer) for the database.
+# Security, RBAC & PHIPA Compliance Controls
+- Role-Based Access Control (RBAC): Mutating API routes check the Clerk user metadata for `role: staff` or `role: admin`. (Defaults to staff for demo purposes if left blank).
+- Middleware Protection: Strict separation of concerns at the edge. POST /api/clinics is denied unless a valid token is present.
+- Data Minimization: Unauthenticated public requests to the queue API immediately strip PII (Personal Identifiable Information). "John Smith" returns as "J. S." and phone numbers are omitted.
+- At-Rest Encryption: Data is securely stored using Supabase PostgreSQL (utilizing Vercel's serverless connection pooler on port 6543) which enforces at-rest encryption natively.
