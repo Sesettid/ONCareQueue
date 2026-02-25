@@ -1,7 +1,7 @@
 # ONCareQueue Source Code
 
 
---- src/middleware.ts ---
+--- ./middleware.ts ---
 
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
@@ -38,7 +38,84 @@ export const config = {
 };
 
 
---- src/app/sign-up/[[...sign-up]]/page.tsx ---
+--- ./prisma/schema.prisma ---
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Clinic {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  phone     String?
+  email     String?
+  timezone  String   @default("America/Toronto")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  queueEntries QueueEntry[]
+  appointments Appointment[]
+}
+
+model Patient {
+  id        String   @id @default(cuid())
+  clerkId   String?  @unique
+  firstName String
+  lastName  String
+  email     String
+  phone     String?
+  language  String   @default("en")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  queueEntries  QueueEntry[]
+  appointments Appointment[]
+}
+
+model QueueEntry {
+  id                    String   @id @default(cuid())
+  clinicId              String
+  patientId             String?
+  patientName           String
+  patientPhone          String?
+  status                String   @default("waiting")
+  checkInTime           DateTime @default(now())
+  estimatedWaitMinutes  Int      @default(0)
+  notes                 String?
+  priority              Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+}
+
+model Appointment {
+  id            String   @id @default(cuid())
+  clinicId      String
+  patientId     String?
+  patientName   String?
+  patientEmail  String?
+  scheduledTime DateTime
+  duration      Int      @default(15)
+  type          String   @default("appointment")
+  status        String   @default("scheduled")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+}
+
+
+--- ./src/app/sign-up/[[...sign-up]]/page.tsx ---
 
 import { SignUp } from "@clerk/nextjs";
 
@@ -64,36 +141,22 @@ export default function SignUpPage() {
 }
 
 
---- src/app/find-clinic/page.tsx ---
+--- ./src/app/find-clinic/page.tsx ---
 
-"use client"
-import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { prisma } from '@/lib/prisma'
 
-type Clinic = { id: string; name: string; address: string | null }
+export const dynamic = 'force-dynamic'
 
-export default function FindClinic() {
-  const [clinics, setClinics] = useState<Clinic[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetch('/api/clinics')
-      .then(res => res.json())
-      .then(data => {
-        setClinics(data)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [])
+export default async function FindClinic() {
+  const clinics = await prisma.clinic.findMany({ orderBy: { createdAt: 'desc' } })
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <div className="max-w-2xl w-full animate-fade-in-up">
         <h1 className="text-3xl font-bold text-slate-900 mb-6 text-center">Find a Clinic</h1>
-        {loading ? (
-          <div className="text-center text-teal-700 py-12">Loading clinics...</div>
-        ) : clinics.length === 0 ? (
+        {clinics.length === 0 ? (
           <p className="text-slate-500 text-center py-12">No clinics available yet.</p>
         ) : (
           <div className="grid gap-4">
@@ -121,7 +184,7 @@ export default function FindClinic() {
 }
 
 
---- src/app/dashboard/page.tsx ---
+--- ./src/app/dashboard/page.tsx ---
 
 "use client"
 
@@ -480,7 +543,7 @@ export default function Dashboard() {
 }
 
 
---- src/app/layout.tsx ---
+--- ./src/app/layout.tsx ---
 
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
@@ -521,7 +584,7 @@ export default function RootLayout({
 }
 
 
---- src/app/api/seed/route.ts ---
+--- ./src/app/api/seed/route.ts ---
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -577,7 +640,7 @@ export async function GET() {
 }
 
 
---- src/app/api/clinics/[clinicId]/queue/route.ts ---
+--- ./src/app/api/clinics/[clinicId]/queue/route.ts ---
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -590,8 +653,9 @@ export async function GET(
   context: any
 ) {
   try {
-    const { userId } = await auth();
-    const isStaff = !!userId;
+    const { userId, sessionClaims } = await auth();
+    const role = (sessionClaims?.metadata as any)?.role || (process.env.DEMO_RBAC === 'true' ? 'staff' : 'patient');
+    const isStaff = !!userId && (role === 'staff' || role === 'admin');
     const { clinicId } = await context.params
 
     const entries = await prisma.queueEntry.findMany({
@@ -604,25 +668,18 @@ export async function GET(
         { checkInTime: 'asc' }
       ],
       include: {
-        clinic: {
-          select: {
-            name: true,
-            address: true
-          }
-        }
+        clinic: { select: { name: true, address: true } }
       }
     })
 
     const now = new Date()
     const entriesWithWait = entries.map(entry => {
-      const waitMinutes = Math.floor(
-        (now.getTime() - new Date(entry.checkInTime).getTime()) / 60000
-      )
+      const waitMinutes = Math.floor((now.getTime() - new Date(entry.checkInTime).getTime()) / 60000)
       
-      // PHIPA Compliance: Anonymize data for public unauthenticated requests
       let displayName = entry.patientName;
       if (!isStaff) {
-        displayName = entry.patientName.split(' ').map(n => n[0] + '.').join(' ');
+        // Safe PHIPA anonymization
+        displayName = entry.patientName.split(' ').map((n: string) => n[0] + '.').join(' ');
       }
 
       return {
@@ -641,7 +698,7 @@ export async function GET(
 }
 
 
---- src/app/api/clinics/route.ts ---
+--- ./src/app/api/clinics/route.ts ---
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -677,7 +734,7 @@ export async function POST(request: Request) {
     const { userId, sessionClaims } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     
-    const role = (sessionClaims?.metadata as any)?.role || 'staff';
+    const role = (sessionClaims?.metadata as any)?.role || (process.env.DEMO_RBAC === 'true' ? 'staff' : 'patient');
     if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json()
@@ -709,7 +766,7 @@ export async function POST(request: Request) {
 }
 
 
---- src/app/api/queue-entry/[entryId]/route.ts ---
+--- ./src/app/api/queue-entry/[entryId]/route.ts ---
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -724,7 +781,7 @@ export async function PATCH(
     const { userId, sessionClaims } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     
-    const role = (sessionClaims?.metadata as any)?.role || 'staff';
+    const role = (sessionClaims?.metadata as any)?.role || (process.env.DEMO_RBAC === 'true' ? 'staff' : 'patient');
     if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const { entryId } = await context.params
@@ -759,7 +816,7 @@ export async function DELETE(
     const { userId, sessionClaims } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     
-    const role = (sessionClaims?.metadata as any)?.role || 'staff';
+    const role = (sessionClaims?.metadata as any)?.role || (process.env.DEMO_RBAC === 'true' ? 'staff' : 'patient');
     if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const { entryId } = await context.params
@@ -772,7 +829,7 @@ export async function DELETE(
 }
 
 
---- src/app/api/queue/check-in/route.ts ---
+--- ./src/app/api/queue/check-in/route.ts ---
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -795,7 +852,7 @@ export async function POST(request: NextRequest) {
     }
     
     // RBAC: Verify user has staff or admin role
-    const role = (sessionClaims?.metadata as any)?.role || 'staff'; // Defaulting to staff for hackathon demo purposes
+    const role = (sessionClaims?.metadata as any)?.role || (process.env.DEMO_RBAC === 'true' ? 'staff' : 'patient');
     if (role !== 'staff' && role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden: Requires staff privileges' }, { status: 403 });
     }
@@ -843,7 +900,7 @@ export async function POST(request: NextRequest) {
 }
 
 
---- src/app/sign-in/[[...sign-in]]/page.tsx ---
+--- ./src/app/sign-in/[[...sign-in]]/page.tsx ---
 
 import { SignIn } from "@clerk/nextjs";
 
@@ -869,7 +926,7 @@ export default function SignInPage() {
 }
 
 
---- src/app/clinic/[id]/page.tsx ---
+--- ./src/app/clinic/[id]/page.tsx ---
 
 "use client"
 import { useEffect, useState } from "react"
@@ -967,7 +1024,7 @@ export default function PublicQueueViewer() {
 }
 
 
---- src/app/page.tsx ---
+--- ./src/app/page.tsx ---
 
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
@@ -990,7 +1047,7 @@ export default function Home() {
 }
 
 
---- src/components/Hero.tsx ---
+--- ./src/components/Hero.tsx ---
 
 "use client";
 
@@ -1173,7 +1230,7 @@ export default function Hero() {
 }
 
 
---- src/components/ui/card.tsx ---
+--- ./src/components/ui/card.tsx ---
 
 import * as React from "react"
 
@@ -1269,7 +1326,7 @@ export {
 }
 
 
---- src/components/ui/badge.tsx ---
+--- ./src/components/ui/badge.tsx ---
 
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -1321,7 +1378,7 @@ function Badge({
 export { Badge, badgeVariants }
 
 
---- src/components/ui/button.tsx ---
+--- ./src/components/ui/button.tsx ---
 
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -1389,7 +1446,7 @@ function Button({
 export { Button, buttonVariants }
 
 
---- src/components/Navbar.tsx ---
+--- ./src/components/Navbar.tsx ---
 
 "use client";
 
@@ -1516,7 +1573,7 @@ export default function Navbar() {
 }
 
 
---- src/components/Features.tsx ---
+--- ./src/components/Features.tsx ---
 
 "use client";
 
@@ -1582,7 +1639,7 @@ export default function Features() {
 }
 
 
---- src/components/Sections.tsx ---
+--- ./src/components/Sections.tsx ---
 
 "use client";
 
@@ -1775,7 +1832,7 @@ export function Footer() {
 }
 
 
---- src/lib/prisma.ts ---
+--- ./src/lib/prisma.ts ---
 
 import { PrismaClient } from '@prisma/client'
 
@@ -1788,88 +1845,11 @@ export const prisma = globalForPrisma.prisma ?? new PrismaClient()
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
 
 
---- src/lib/utils.ts ---
+--- ./src/lib/utils.ts ---
 
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
-}
-
-
---- prisma/schema.prisma ---
-
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-model Clinic {
-  id        String   @id @default(cuid())
-  name      String
-  address   String?
-  phone     String?
-  email     String?
-  timezone  String   @default("America/Toronto")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  queueEntries QueueEntry[]
-  appointments Appointment[]
-}
-
-model Patient {
-  id        String   @id @default(cuid())
-  clerkId   String?  @unique
-  firstName String
-  lastName  String
-  email     String
-  phone     String?
-  language  String   @default("en")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  queueEntries  QueueEntry[]
-  appointments Appointment[]
-}
-
-model QueueEntry {
-  id                    String   @id @default(cuid())
-  clinicId              String
-  patientId             String?
-  patientName           String
-  patientPhone          String?
-  status                String   @default("waiting")
-  checkInTime           DateTime @default(now())
-  estimatedWaitMinutes  Int      @default(0)
-  notes                 String?
-  priority              Int      @default(0)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  clinic  Clinic  @relation(fields: [clinicId], references: [id])
-  patient Patient? @relation(fields: [patientId], references: [id])
-}
-
-model Appointment {
-  id            String   @id @default(cuid())
-  clinicId      String
-  patientId     String?
-  patientName   String?
-  patientEmail  String?
-  scheduledTime DateTime
-  duration      Int      @default(15)
-  type          String   @default("appointment")
-  status        String   @default("scheduled")
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  clinic  Clinic  @relation(fields: [clinicId], references: [id])
-  patient Patient? @relation(fields: [patientId], references: [id])
 }

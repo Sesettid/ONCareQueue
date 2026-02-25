@@ -9,8 +9,9 @@ export async function GET(
   context: any
 ) {
   try {
-    const { userId } = await auth();
-    const isStaff = !!userId;
+    const { userId, sessionClaims } = await auth();
+    const role = (sessionClaims?.metadata as any)?.role || (process.env.DEMO_RBAC === 'true' ? 'staff' : 'patient');
+    const isStaff = !!userId && (role === 'staff' || role === 'admin');
     const { clinicId } = await context.params
 
     const entries = await prisma.queueEntry.findMany({
@@ -23,25 +24,18 @@ export async function GET(
         { checkInTime: 'asc' }
       ],
       include: {
-        clinic: {
-          select: {
-            name: true,
-            address: true
-          }
-        }
+        clinic: { select: { name: true, address: true } }
       }
     })
 
     const now = new Date()
     const entriesWithWait = entries.map(entry => {
-      const waitMinutes = Math.floor(
-        (now.getTime() - new Date(entry.checkInTime).getTime()) / 60000
-      )
+      const waitMinutes = Math.floor((now.getTime() - new Date(entry.checkInTime).getTime()) / 60000)
       
-      // PHIPA Compliance: Anonymize data for public unauthenticated requests
       let displayName = entry.patientName;
       if (!isStaff) {
-        displayName = entry.patientName.split(' ').map(n => n[0] + '.').join(' ');
+        // Safe PHIPA anonymization
+        displayName = entry.patientName.split(' ').map((n: string) => n[0] + '.').join(' ');
       }
 
       return {

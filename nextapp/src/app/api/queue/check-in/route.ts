@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
     
     // RBAC: Verify user has staff or admin role
-    const role = (sessionClaims?.metadata as any)?.role || 'staff'; // Defaulting to staff for hackathon demo purposes
+    const role = (sessionClaims?.metadata as any)?.role || (process.env.DEMO_RBAC === 'true' ? 'staff' : 'patient');
     if (role !== 'staff' && role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden: Requires staff privileges' }, { status: 403 });
     }

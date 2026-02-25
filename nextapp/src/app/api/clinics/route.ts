@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     const { userId, sessionClaims } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     
-    const role = (sessionClaims?.metadata as any)?.role || 'staff';
+    const role = (sessionClaims?.metadata as any)?.role || (process.env.DEMO_RBAC === 'true' ? 'staff' : 'patient');
     if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json()
