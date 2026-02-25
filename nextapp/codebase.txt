@@ -787,14 +787,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { clinicId, patientName, patientPhone, notes, priority } = body
-
-    if (!clinicId || !patientName) {
-      return NextResponse.json(
-        { error: 'clinicId and patientName are required' },
-        { status: 400 }
-      )
+    const validation = CheckInSchema.safeParse(body)
+    
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input data', details: validation.error.format() }, { status: 400 })
     }
+
+    const { clinicId, patientName, patientPhone, notes, priority } = validation.data
 
     // Get current queue count to estimate wait time
     const queueCount = await prisma.queueEntry.count({
@@ -1083,7 +1082,7 @@ export default function Hero() {
               <Link href="#contact">Request Demo</Link>
             </Button>
             <Button asChild variant="outline" size="lg" className="border-teal-700 text-teal-700 hover:bg-teal-700 hover:text-white transition-all">
-              <Link href="#features">Learn More</Link>
+              <Link href="/sign-in">Try the Dashboard</Link>
             </Button>
           </div>
           <div className="flex gap-10 pt-4">

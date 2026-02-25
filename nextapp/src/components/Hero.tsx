@@ -102,7 +102,7 @@ export default function Hero() {
               <Link href="#contact">Request Demo</Link>
             </Button>
             <Button asChild variant="outline" size="lg" className="border-teal-700 text-teal-700 hover:bg-teal-700 hover:text-white transition-all">
-              <Link href="#features">Learn More</Link>
+              <Link href="/sign-in">Try the Dashboard</Link>
             </Button>
           </div>
           <div className="flex gap-10 pt-4">

@@ -17,14 +17,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { clinicId, patientName, patientPhone, notes, priority } = body
-
-    if (!clinicId || !patientName) {
-      return NextResponse.json(
-        { error: 'clinicId and patientName are required' },
-        { status: 400 }
-      )
+    const validation = CheckInSchema.safeParse(body)
+    
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input data', details: validation.error.format() }, { status: 400 })
     }
+
+    const { clinicId, patientName, patientPhone, notes, priority } = validation.data
 
     // Get current queue count to estimate wait time
     const queueCount = await prisma.queueEntry.count({

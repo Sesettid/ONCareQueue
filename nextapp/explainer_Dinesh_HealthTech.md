@@ -15,5 +15,7 @@ Ontario healthcare clinics face severe wait time management issues, leaving pati
 ## Testing Instructions for Judges
 * **Live Database:** The live URL is actively connected to a Supabase PostgreSQL instance via connection pooling.
 * **To Seed Data:** If the database is empty when you arrive, navigating to the `/dashboard` will show an "Initialize Demo Environment" button. Click this to instantly create a clinic and populate a sample patient queue.
-* **Authentication:** You can create an account normally via the Clerk `/sign-up` page to access the Dashboard. Our backend RBAC defaults newly created accounts to "staff" so that you can freely test the mutation features (checking in patients, changing status) without needing backend admin intervention.
+* **Authentication / Test Account:** You can create an account normally via the Clerk `/sign-up` page to access the Dashboard. Our backend RBAC defaults newly created accounts to "staff" so that you can freely test the mutation features without needing backend admin intervention. Alternatively, you can use our frictionless test account:
+  * **Email:** `judge@oncarequeue.com`
+  * **Password:** `Hackathon2026!`
 * **Public Patient View:** Navigate to `/find-clinic` and click a clinic to view the live public board. Notice that patient names are securely anonymized (e.g. "J. S.") in accordance with PHIPA guidelines!
