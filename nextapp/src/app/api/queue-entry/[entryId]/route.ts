@@ -5,7 +5,7 @@ import { auth } from '@clerk/nextjs/server'
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { entryId: string } }
+  context: any
 ) {
   try {
     const { userId, sessionClaims } = await auth();
@@ -14,7 +14,7 @@ export async function PATCH(
     const role = (sessionClaims?.metadata as any)?.role || 'staff';
     if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    const { entryId } = params
+    const { entryId } = await context.params
     const body = await request.json()
     const { status, notes } = body
 
@@ -40,7 +40,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { entryId: string } }
+  context: any
 ) {
   try {
     const { userId, sessionClaims } = await auth();
@@ -49,7 +49,7 @@ export async function DELETE(
     const role = (sessionClaims?.metadata as any)?.role || 'staff';
     if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    const { entryId } = params
+    const { entryId } = await context.params
     await prisma.queueEntry.delete({ where: { id: entryId } })
     return NextResponse.json({ success: true })
   } catch (error) {

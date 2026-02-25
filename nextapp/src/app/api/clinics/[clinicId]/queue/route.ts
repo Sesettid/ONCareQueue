@@ -6,12 +6,12 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { clinicId: string } }
+  context: any
 ) {
   try {
     const { userId } = await auth();
     const isStaff = !!userId;
-    const { clinicId } = params
+    const { clinicId } = await context.params
 
     const entries = await prisma.queueEntry.findMany({
       where: {
