@@ -48,10 +48,15 @@ export default function Dashboard() {
         const data = await res.json()
         if (data.length > 0) {
           setClinic(data[0])
+        } else {
+          setLoading(false)
         }
+      } else {
+        setLoading(false)
       }
     } catch (error) {
       console.error("Failed to fetch clinic:", error)
+      setLoading(false)
     }
   }
 
@@ -128,6 +133,30 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-teal-50 to-emerald-50 flex items-center justify-center">
         <div className="text-teal-700 text-xl">Loading queue...</div>
+      </div>
+    )
+  }
+
+  if (!clinic) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-teal-50 to-emerald-50 flex flex-col items-center justify-center p-6 text-center">
+        <Card className="max-w-md w-full p-8 shadow-xl">
+          <h1 className="text-2xl font-bold text-slate-900 mb-4">Welcome to ONCareQueue</h1>
+          <p className="text-slate-500 mb-8">It looks like your database is empty. Click below to instantly generate a demo clinic and sample patient queue.</p>
+          <Button 
+            size="lg"
+            className="w-full bg-teal-700 hover:bg-teal-800 text-white"
+            onClick={async (e) => {
+              const btn = e.currentTarget;
+              btn.disabled = true;
+              btn.innerText = "Seeding Database...";
+              await fetch('/api/seed');
+              window.location.reload();
+            }}
+          >
+            Initialize Demo Environment
+          </Button>
+        </Card>
       </div>
     )
   }
