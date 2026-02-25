@@ -4,7 +4,7 @@
 **One-line Description:** A real-time, PHIPA-compliant queue management dashboard for Ontario healthcare clinics.
 
 **Team Members:** 
-- Dinesh_HealthTech
+- Dinesh Sesetti (saidinu.sesetti183@gmail.com)
 
 **Live Deployment URL:** https://on-care-queue-wdsd.vercel.app/
 **GitHub Repository URL:** https://github.com/Sesettid/ONCareQueue
