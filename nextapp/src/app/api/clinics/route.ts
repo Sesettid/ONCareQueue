@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { auth } from '@clerk/nextjs/server'
+import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
+
+const ClinicSchema = z.object({
+  name: z.string().min(2),
+  address: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  email: z.string().email().nullable().optional().or(z.literal(''))
+})
 
 export async function GET() {
   try {
@@ -18,8 +27,6 @@ export async function GET() {
   }
 }
 
-import { auth } from '@clerk/nextjs/server'
-
 export async function POST(request: Request) {
   try {
     const { userId, sessionClaims } = await auth();
@@ -29,14 +36,13 @@ export async function POST(request: Request) {
     if (role !== 'staff' && role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json()
-    const { name, address, phone, email } = body
-
-    if (!name) {
-      return NextResponse.json(
-        { error: 'Clinic name is required' },
-        { status: 400 }
-      )
+    const validation = ClinicSchema.safeParse(body)
+    
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Invalid input data', details: validation.error.format() }, { status: 400 })
     }
+
+    const { name, address, phone, email } = validation.data
 
     const clinic = await prisma.clinic.create({
       data: {

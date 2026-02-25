@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-
 import { auth } from '@clerk/nextjs/server'
+import { z } from 'zod'
+
+const CheckInSchema = z.object({
+  clinicId: z.string().min(1),
+  patientName: z.string().min(2),
+  patientPhone: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  priority: z.number().optional()
+})
 
 export async function POST(request: NextRequest) {
   try {
