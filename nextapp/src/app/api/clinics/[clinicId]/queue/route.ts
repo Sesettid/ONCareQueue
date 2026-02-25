@@ -5,10 +5,10 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ clinicId: string }> }
+  { params }: { params: { clinicId: string } }
 ) {
   try {
-    const { clinicId } = await params
+    const { clinicId } = params
 
     const entries = await prisma.queueEntry.findMany({
       where: {

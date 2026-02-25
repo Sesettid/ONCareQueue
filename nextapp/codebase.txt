@@ -1,0 +1,1617 @@
+# ONCareQueue Source Code
+
+
+--- src/middleware.ts ---
+
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/find-clinic(.*)",
+  "/api/clinics(.*)",
+]);
+
+export default clerkMiddleware(async (auth, req) => {
+  if (!isPublicRoute(req)) {
+    await auth.protect();
+  }
+});
+
+export const config = {
+  matcher: ["/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)", "/(api|trpc)(.*)"],
+};
+
+
+--- src/app/sign-up/[[...sign-up]]/page.tsx ---
+
+import { SignUp } from "@clerk/nextjs";
+
+export default function SignUpPage() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 py-12 px-4">
+      <SignUp
+        appearance={{
+          elements: {
+            rootBox: "mx-auto",
+            card: "shadow-lg",
+          },
+          variables: {
+            colorPrimary: "#0f766e",
+            colorBackground: "#ffffff",
+            borderRadius: "0.5rem",
+          },
+        }}
+        afterSignUpUrl="/"
+      />
+    </div>
+  );
+}
+
+
+--- src/app/dashboard/page.tsx ---
+
+"use client"
+
+import { useEffect, useState, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+
+type QueueEntry = {
+  id: string
+  patientName: string
+  patientPhone: string | null
+  status: string
+  checkInTime: string
+  estimatedWaitMinutes: number
+  actualWaitMinutes: number
+}
+
+type Clinic = {
+  id: string
+  name: string
+  address: string | null
+}
+
+export default function Dashboard() {
+  const [clinic, setClinic] = useState<Clinic | null>(null)
+  const [queue, setQueue] = useState<QueueEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [checkingIn, setCheckingIn] = useState(false)
+  const [patientName, setPatientName] = useState("")
+  const [patientPhone, setPatientPhone] = useState("")
+
+  const fetchQueue = useCallback(async () => {
+    if (!clinic) return
+    try {
+      const res = await fetch(`/api/clinics/${clinic.id}/queue`)
+      if (res.ok) {
+        const data = await res.json()
+        setQueue(data)
+      }
+    } catch (error) {
+      console.error("Failed to fetch queue:", error)
+    }
+  }, [clinic])
+
+  const fetchClinic = async () => {
+    try {
+      const res = await fetch("/api/clinics")
+      if (res.ok) {
+        const data = await res.json()
+        if (data.length > 0) {
+          setClinic(data[0])
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch clinic:", error)
+    }
+  }
+
+  useEffect(() => {
+    fetchClinic()
+  }, [])
+
+  useEffect(() => {
+    if (clinic) {
+      fetchQueue()
+      const interval = setInterval(fetchQueue, 5000)
+      return () => clearInterval(interval)
+    }
+  }, [clinic, fetchQueue])
+
+  useEffect(() => {
+    if (clinic && queue.length === 0) {
+      setLoading(false)
+    } else if (queue.length > 0) {
+      setLoading(false)
+    }
+  }, [clinic, queue])
+
+  const handleCheckIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!clinic || !patientName.trim()) return
+
+    setCheckingIn(true)
+    try {
+      const res = await fetch("/api/queue/check-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clinicId: clinic.id,
+          patientName: patientName.trim(),
+          patientPhone: patientPhone.trim() || null
+        })
+      })
+
+      if (res.ok) {
+        setPatientName("")
+        setPatientPhone("")
+        fetchQueue()
+      }
+    } catch (error) {
+      console.error("Failed to check in:", error)
+    }
+    setCheckingIn(false)
+  }
+
+  const updateStatus = async (entryId: string, status: string) => {
+    try {
+      const res = await fetch(`/api/queue-entry/${entryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      })
+      if (res.ok) fetchQueue()
+    } catch (error) {
+      console.error("Failed to update status:", error)
+    }
+  }
+
+  const removeEntry = async (entryId: string) => {
+    try {
+      const res = await fetch(`/api/queue-entry/${entryId}`, { method: "DELETE" })
+      if (res.ok) fetchQueue()
+    } catch (error) {
+      console.error("Failed to remove entry:", error)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-teal-50 to-emerald-50 flex items-center justify-center">
+        <div className="text-teal-700 text-xl">Loading queue...</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-teal-50 to-emerald-50 p-6">
+      <div className="max-w-4xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-slate-900">
+            {clinic?.name || "Healthcare Queue"}
+          </h1>
+          {clinic?.address && (
+            <p className="text-slate-500">{clinic.address}</p>
+          )}
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Check In Patient</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleCheckIn} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Patient Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={patientName}
+                    onChange={(e) => setPatientName(e.target.value)}
+                    placeholder="Enter patient name"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Phone (optional)
+                  </label>
+                  <input
+                    type="tel"
+                    value={patientPhone}
+                    onChange={(e) => setPatientPhone(e.target.value)}
+                    placeholder="416-555-0123"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  disabled={checkingIn}
+                  className="w-full bg-teal-700 hover:bg-teal-800"
+                >
+                  {checkingIn ? "Checking in..." : "Check In"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Queue Stats</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-emerald-50 p-4 rounded-lg">
+                  <div className="text-3xl font-bold text-emerald-700">
+                    {queue.filter(e => e.status === "waiting").length}
+                  </div>
+                  <div className="text-sm text-emerald-600">Waiting</div>
+                </div>
+                <div className="bg-amber-50 p-4 rounded-lg">
+                  <div className="text-3xl font-bold text-amber-700">
+                    {queue.filter(e => e.status === "ready").length}
+                  </div>
+                  <div className="text-sm text-amber-600">Ready</div>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <div className="text-3xl font-bold text-blue-700">
+                    {queue.length}
+                  </div>
+                  <div className="text-sm text-blue-600">Total in Queue</div>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg">
+                  <div className="text-3xl font-bold text-purple-700">
+                    ~{queue.filter(e => e.status === "waiting").length * 6}
+                  </div>
+                  <div className="text-sm text-purple-600">Est. Wait (min)</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Current Queue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {queue.length === 0 ? (
+              <p className="text-slate-500 text-center py-8">
+                No patients in queue. Check in a patient to get started.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {queue.map((entry, index) => (
+                  <div
+                    key={entry.id}
+                    className={`flex items-center gap-4 p-4 rounded-lg ${
+                      entry.status === "ready"
+                        ? "bg-emerald-50 border border-emerald-200"
+                        : entry.status === "in-progress"
+                        ? "bg-blue-50 border border-blue-200"
+                        : "bg-slate-50"
+                    }`}
+                  >
+                    <div className="text-2xl font-bold text-teal-700 w-8">
+                      #{index + 1}
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-slate-800">
+                        {entry.patientName}
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        {entry.status === "ready"
+                          ? "Ready for appointment"
+                          : entry.status === "in-progress"
+                          ? "Currently being seen"
+                          : `Est. Wait: ~${
+                              queue.filter(e => e.status === "waiting" || e.status === "in-progress")
+                                   .findIndex(e => e.id === entry.id) * 6
+                            } min`}
+                      </div>
+                    </div>
+                    <span
+                      className={`text-xs font-bold px-3 py-1 rounded-full ${
+                        entry.status === "ready"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : entry.status === "in-progress"
+                          ? "bg-blue-100 text-blue-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {entry.status === "ready"
+                        ? "Ready ✓"
+                        : entry.status === "in-progress"
+                        ? "In Progress"
+                        : "Waiting"}
+                    </span>
+                    <div className="flex gap-2">
+                      {entry.status === "waiting" && (
+                        <Button
+                          size="sm"
+                          onClick={() => updateStatus(entry.id, "ready")}
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                        >
+                          Call
+                        </Button>
+                      )}
+                      {entry.status === "ready" && (
+                        <Button
+                          size="sm"
+                          onClick={() => updateStatus(entry.id, "in-progress")}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          Start
+                        </Button>
+                      )}
+                      {entry.status === "in-progress" && (
+                        <Button
+                          size="sm"
+                          onClick={() => updateStatus(entry.id, "completed")}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          Done
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => removeEntry(entry.id)}
+                        className="text-red-600 border-red-200 hover:bg-red-50"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+
+--- src/app/layout.tsx ---
+
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "ONCareQueue – Smart Queue Management",
+  description: "Reduce wait times and improve patient experience with ONCareQueue.",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <ClerkProvider>
+      <html lang="en">
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        >
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
+  );
+}
+
+
+--- src/app/api/seed/route.ts ---
+
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+
+export async function GET() {
+  try {
+    // Check if clinics already exist
+    const existingClinics = await prisma.clinic.count()
+    if (existingClinics > 0) {
+      return NextResponse.json({ message: 'Database already seeded' })
+    }
+
+    // Create default clinic
+    const clinic = await prisma.clinic.create({
+      data: {
+        name: 'Toronto Family Clinic',
+        address: '123 Healthcare Ave, Toronto, ON M5V 2T6',
+        phone: '(416) 555-0123',
+        email: 'info@torontofamilyclinic.ca',
+        timezone: 'America/Toronto'
+      }
+    })
+
+    // Add some sample queue entries
+    const sampleEntries = [
+      { patientName: 'John Smith', patientPhone: '416-555-1001', status: 'ready', estimatedWaitMinutes: 0 },
+      { patientName: 'Sarah Johnson', patientPhone: '416-555-1002', status: 'waiting', estimatedWaitMinutes: 8 },
+      { patientName: 'Michael Chen', patientPhone: '416-555-1003', status: 'waiting', estimatedWaitMinutes: 15 },
+      { patientName: 'Emily Davis', patientPhone: '416-555-1004', status: 'waiting', estimatedWaitMinutes: 22 },
+    ]
+
+    for (const entry of sampleEntries) {
+      await prisma.queueEntry.create({
+        data: {
+          clinicId: clinic.id,
+          ...entry
+        }
+      })
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      clinicId: clinic.id,
+      message: 'Database seeded with sample data'
+    })
+  } catch (error) {
+    console.error('Error seeding database:', error)
+    return NextResponse.json(
+      { error: 'Failed to seed database' },
+      { status: 500 }
+    )
+  }
+}
+
+
+--- src/app/api/clinics/[clinicId]/queue/route.ts ---
+
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+
+export const dynamic = 'force-dynamic'
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { clinicId: string } }
+) {
+  try {
+    const { clinicId } = params
+
+    const entries = await prisma.queueEntry.findMany({
+      where: {
+        clinicId,
+        status: { in: ['waiting', 'ready', 'in-progress'] }
+      },
+      orderBy: [
+        { priority: 'desc' },
+        { checkInTime: 'asc' }
+      ],
+      include: {
+        clinic: {
+          select: {
+            name: true,
+            address: true
+          }
+        }
+      }
+    })
+
+    const now = new Date()
+    const entriesWithWait = entries.map(entry => {
+      const waitMinutes = Math.floor(
+        (now.getTime() - new Date(entry.checkInTime).getTime()) / 60000
+      )
+      return {
+        ...entry,
+        actualWaitMinutes: waitMinutes
+      }
+    })
+
+    return NextResponse.json(entriesWithWait)
+  } catch (error) {
+    console.error('Error fetching queue:', error)
+    return NextResponse.json({ error: 'Failed to fetch queue' }, { status: 500 })
+  }
+}
+
+
+--- src/app/api/clinics/route.ts ---
+
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+
+export const dynamic = 'force-dynamic'
+
+export async function GET() {
+  try {
+    const clinics = await prisma.clinic.findMany({
+      orderBy: { createdAt: 'desc' }
+    })
+    return NextResponse.json(clinics)
+  } catch (error) {
+    console.error('Error fetching clinics:', error)
+    return NextResponse.json(
+      { error: 'Failed to fetch clinics' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json()
+    const { name, address, phone, email } = body
+
+    if (!name) {
+      return NextResponse.json(
+        { error: 'Clinic name is required' },
+        { status: 400 }
+      )
+    }
+
+    const clinic = await prisma.clinic.create({
+      data: {
+        name,
+        address: address || null,
+        phone: phone || null,
+        email: email || null
+      }
+    })
+
+    return NextResponse.json(clinic, { status: 201 })
+  } catch (error) {
+    console.error('Error creating clinic:', error)
+    return NextResponse.json(
+      { error: 'Failed to create clinic' },
+      { status: 500 }
+    )
+  }
+}
+
+
+--- src/app/api/queue-entry/[entryId]/route.ts ---
+
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { entryId: string } }
+) {
+  try {
+    const { entryId } = params
+    const body = await request.json()
+    const { status, notes } = body
+
+    const validStatuses = ['waiting', 'ready', 'in-progress', 'completed', 'no-show']
+    if (status && !validStatuses.includes(status)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
+    }
+
+    const entry = await prisma.queueEntry.update({
+      where: { id: entryId },
+      data: {
+        ...(status && { status }),
+        ...(notes !== undefined && { notes })
+      }
+    })
+
+    return NextResponse.json(entry)
+  } catch (error) {
+    console.error('Error updating queue entry:', error)
+    return NextResponse.json({ error: 'Failed to update entry' }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { entryId: string } }
+) {
+  try {
+    const { entryId } = params
+    await prisma.queueEntry.delete({ where: { id: entryId } })
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting queue entry:', error)
+    return NextResponse.json({ error: 'Failed to delete entry' }, { status: 500 })
+  }
+}
+
+
+--- src/app/api/queue/check-in/route.ts ---
+
+import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { clinicId, patientName, patientPhone, notes, priority } = body
+
+    if (!clinicId || !patientName) {
+      return NextResponse.json(
+        { error: 'clinicId and patientName are required' },
+        { status: 400 }
+      )
+    }
+
+    // Get current queue count to estimate wait time
+    const queueCount = await prisma.queueEntry.count({
+      where: {
+        clinicId,
+        status: { in: ['waiting', 'in-progress'] }
+      }
+    })
+
+    // Estimate wait time (6 minutes per patient)
+    const estimatedWaitMinutes = queueCount * 6
+
+    const entry = await prisma.queueEntry.create({
+      data: {
+        clinicId,
+        patientName,
+        patientPhone: patientPhone || null,
+        notes: notes || null,
+        priority: priority || 0,
+        estimatedWaitMinutes,
+        status: 'waiting'
+      }
+    })
+
+    return NextResponse.json(entry, { status: 201 })
+  } catch (error) {
+    console.error('Error creating queue entry:', error)
+    return NextResponse.json(
+      { error: 'Failed to check in patient' },
+      { status: 500 }
+    )
+  }
+}
+
+
+--- src/app/sign-in/[[...sign-in]]/page.tsx ---
+
+import { SignIn } from "@clerk/nextjs";
+
+export default function SignInPage() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 py-12 px-4">
+      <SignIn
+        appearance={{
+          elements: {
+            rootBox: "mx-auto",
+            card: "shadow-lg",
+          },
+          variables: {
+            colorPrimary: "#0f766e",
+            colorBackground: "#ffffff",
+            borderRadius: "0.5rem",
+          },
+        }}
+        afterSignInUrl="/"
+      />
+    </div>
+  );
+}
+
+
+--- src/app/page.tsx ---
+
+import Navbar from "@/components/Navbar";
+import Hero from "@/components/Hero";
+import Features from "@/components/Features";
+import { Stats, Services, Testimonials, CTA, Footer } from "@/components/Sections";
+
+export default function Home() {
+  return (
+    <main className="overflow-x-hidden">
+      <Navbar />
+      <Hero />
+      <Stats />
+      <Features />
+      <Services />
+      <Testimonials />
+      <CTA />
+      <Footer />
+    </main>
+  );
+}
+
+
+--- src/components/Hero.tsx ---
+
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
+import Image from "next/image";
+
+const QUEUE_NAMES = ["Emma Thompson", "Liam Patel", "Olivia Chen", "Noah Williams", "Aisha Malik", "Lucas Brown"];
+
+const initialQueue = [
+  { id: "001", name: "John Smith", wait: 5, status: "ready" as const },
+  { id: "002", name: "Sarah Johnson", wait: 12, status: "waiting" as const },
+  { id: "003", name: "Michael Chen", wait: 18, status: "waiting" as const },
+  { id: "004", name: "Emily Davis", wait: 25, status: "waiting" as const },
+];
+
+type QueueEntry = { id: string; name: string; wait: number; status: "ready" | "waiting" };
+
+export default function Hero() {
+  const [queue, setQueue] = useState<QueueEntry[]>(initialQueue);
+  const [nameIndex, setNameIndex] = useState(0);
+  const [badgeText, setBadgeText] = useState("Ontario's Leading Healthcare Platform");
+  const heroRef = useRef<HTMLDivElement>(null);
+
+  // Typewriter effect for badge
+  useEffect(() => {
+    const texts = [
+      "Ontario's Leading Healthcare Platform",
+      "Find Doctors Accepting New Patients",
+      "Real-Time Wait Time Updates",
+      "PHIPA Compliant & Secure",
+    ];
+    let idx = 0;
+    let charIdx = 0;
+    let deleting = false;
+
+    const tick = () => {
+      const current = texts[idx];
+      if (deleting) {
+        setBadgeText(current.substring(0, charIdx - 1));
+        charIdx--;
+      } else {
+        setBadgeText(current.substring(0, charIdx + 1));
+        charIdx++;
+      }
+      let speed = deleting ? 40 : 80;
+      if (!deleting && charIdx === current.length) { speed = 2000; deleting = true; }
+      else if (deleting && charIdx === 0) { deleting = false; idx = (idx + 1) % texts.length; speed = 400; }
+      setTimeout(tick, speed);
+    };
+
+    const t = setTimeout(tick, 1000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Queue simulator
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setQueue((prev) => {
+        const next = [...prev];
+        const newName = QUEUE_NAMES[nameIndex % QUEUE_NAMES.length];
+        const lastId = parseInt(next[next.length - 1].id) + 1;
+        next.shift();
+        return [
+          { ...next[0], status: "ready", wait: 0 },
+          ...next.slice(1).map((p, i) => ({ ...p, wait: (i + 1) * 6 + Math.floor(Math.random() * 3) })),
+          { id: String(lastId).padStart(3, "0"), name: newName, wait: 30, status: "waiting" },
+        ];
+      });
+      setNameIndex((n) => n + 1);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [nameIndex]);
+
+  return (
+    <section ref={heroRef} className="relative min-h-screen flex items-center pt-24 pb-16 overflow-hidden">
+      {/* Background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-teal-50 via-emerald-50/60 to-slate-50 -z-10" />
+      <div
+        className="absolute inset-0 -z-10 opacity-40"
+        style={{ backgroundImage: "radial-gradient(circle at 1px 1px, #cbd5e1 1px, transparent 0)", backgroundSize: "40px 40px" }}
+      />
+
+      <div className="max-w-[1500px] mx-auto px-6 w-full grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_1.2fr] gap-8 items-center">
+        {/* Left: Content */}
+        <div className="animate-fade-in-up space-y-6">
+          <Badge className="bg-teal-100 text-teal-700 hover:bg-teal-100 border-0 py-1.5 px-4 text-sm font-semibold">
+            {badgeText}
+          </Badge>
+          <h1 className="font-serif text-5xl font-bold text-slate-900 leading-tight">
+            Transforming Patient Care in{" "}
+            <span className="bg-gradient-to-r from-teal-700 to-emerald-500 bg-clip-text text-transparent">
+              Ontario
+            </span>
+          </h1>
+          <p className="text-lg text-slate-500 max-w-lg">
+            Streamline your healthcare practice with our cutting-edge queue management system. Built for Ontario clinics, hospitals, and medical professionals.
+          </p>
+          <div className="flex gap-4 flex-wrap">
+            <Button asChild size="lg" className="bg-teal-700 hover:bg-teal-800 shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5">
+              <Link href="#contact">Request Demo</Link>
+            </Button>
+            <Button asChild variant="outline" size="lg" className="border-teal-700 text-teal-700 hover:bg-teal-700 hover:text-white transition-all">
+              <Link href="#features">Learn More</Link>
+            </Button>
+          </div>
+          <div className="flex gap-10 pt-4">
+            {[
+              { num: "50K+", label: "Patients Served" },
+              { num: "200+", label: "Ontario Clinics" },
+              { num: "4.9/5", label: "⭐ Rating" },
+            ].map(({ num, label }) => (
+              <div key={label} className="flex flex-col">
+                <span className="text-3xl font-bold text-teal-700">{num}</span>
+                <span className="text-sm text-slate-500">{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Center: Doctor Image */}
+        <div className="hidden lg:flex justify-center items-center">
+          <div className="relative w-full max-w-[420px] h-[550px] rounded-2xl overflow-hidden shadow-2xl">
+            <Image
+              src="https://images.pexels.com/photos/4173251/pexels-photo-4173251.jpeg?auto=compress&cs=tinysrgb&w=800&h=1000&fit=crop"
+              alt="Welcoming Canadian Doctor"
+              fill
+              className="object-cover object-center"
+              priority
+            />
+            <div className="absolute bottom-4 left-4 right-4 bg-white/95 rounded-xl px-4 py-3 text-center text-teal-700 font-semibold text-sm shadow-md">
+              🏥 Ontario&apos;s Trusted Healthcare Platform
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Live Queue Card */}
+        <div className="flex justify-center lg:justify-end">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[380px] overflow-hidden animate-float">
+            <div className="bg-slate-100 px-4 py-3 flex gap-2">
+              <span className="w-3 h-3 rounded-full bg-red-400" />
+              <span className="w-3 h-3 rounded-full bg-amber-400" />
+              <span className="w-3 h-3 rounded-full bg-green-400" />
+            </div>
+            <div className="p-5 space-y-3">
+              <h3 className="text-sm font-bold text-slate-700 mb-2">Live Queue — Toronto Family Clinic</h3>
+              {queue.map((entry) => (
+                <div
+                  key={entry.id}
+                  className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-500 ${
+                    entry.status === "ready" ? "bg-emerald-50 border border-emerald-200" : "bg-slate-50"
+                  }`}
+                >
+                  <span className="font-bold text-teal-700 text-sm w-8">{entry.id}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-800 text-sm truncate">{entry.name}</p>
+                    <p className="text-xs text-slate-400">
+                      {entry.wait === 0 ? "Being seen now" : `Wait: ~${entry.wait} min`}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                      entry.status === "ready"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-amber-100 text-amber-700"
+                    }`}
+                  >
+                    {entry.status === "ready" ? "Ready ✓" : "Waiting"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+--- src/components/ui/card.tsx ---
+
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Card({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card"
+      className={cn(
+        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-header"
+      className={cn(
+        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-title"
+      className={cn("leading-none font-semibold", className)}
+      {...props}
+    />
+  )
+}
+
+function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  )
+}
+
+function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-action"
+      className={cn(
+        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-content"
+      className={cn("px-6", className)}
+      {...props}
+    />
+  )
+}
+
+function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-footer"
+      className={cn("flex items-center px-6 [.border-t]:pt-6", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardAction,
+  CardDescription,
+  CardContent,
+}
+
+
+--- src/components/ui/badge.tsx ---
+
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { Slot } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+const badgeVariants = cva(
+  "inline-flex items-center justify-center rounded-full border border-transparent px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
+        secondary:
+          "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
+        destructive:
+          "bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+        outline:
+          "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+        ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 [a&]:hover:underline",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
+function Badge({
+  className,
+  variant = "default",
+  asChild = false,
+  ...props
+}: React.ComponentProps<"span"> &
+  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+  const Comp = asChild ? Slot.Root : "span"
+
+  return (
+    <Comp
+      data-slot="badge"
+      data-variant={variant}
+      className={cn(badgeVariants({ variant }), className)}
+      {...props}
+    />
+  )
+}
+
+export { Badge, badgeVariants }
+
+
+--- src/components/ui/button.tsx ---
+
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { Slot } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+        outline:
+          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost:
+          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        icon: "size-9",
+        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm": "size-8",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  asChild = false,
+  ...props
+}: React.ComponentProps<"button"> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean
+  }) {
+  const Comp = asChild ? Slot.Root : "button"
+
+  return (
+    <Comp
+      data-slot="button"
+      data-variant={variant}
+      data-size={size}
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  )
+}
+
+export { Button, buttonVariants }
+
+
+--- src/components/Navbar.tsx ---
+
+"use client";
+
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { Button } from "@/components/ui/button";
+
+export default function Navbar() {
+  const [scrolled, setScrolled] = useState(false);
+  const [hidden, setHidden] = useState(false);
+  const [lastScrollY, setLastScrollY] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentY = window.scrollY;
+      setScrolled(currentY > 80);
+      setHidden(currentY > lastScrollY && currentY > 200);
+      setLastScrollY(currentY);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [lastScrollY]);
+
+  const navLinks = [
+    { href: "#features", label: "Features" },
+    { href: "#services", label: "Services" },
+    { href: "#about", label: "About" },
+    { href: "#contact", label: "Contact" },
+    { href: "/dashboard", label: "Dashboard" },
+  ];
+
+  return (
+    <nav
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        scrolled ? "bg-white/98 shadow-md" : "bg-white/95 shadow-sm"
+      } ${hidden ? "-translate-y-full" : "translate-y-0"} backdrop-blur-md`}
+    >
+      <div className="max-w-[1500px] mx-auto px-6 py-4 flex items-center justify-between">
+        <Link href="/" className="flex items-center gap-2 font-bold text-xl text-slate-800">
+          <span className="text-2xl">🏥</span>
+          <span>ONCareQueue</span>
+        </Link>
+
+        <ul className="hidden md:flex items-center gap-8">
+          {navLinks.map((link) => (
+            <li key={link.href}>
+              <Link
+                href={link.href}
+                className="font-medium text-slate-600 hover:text-teal-700 transition-colors relative group"
+              >
+                {link.label}
+                <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-teal-700 transition-all group-hover:w-full" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+
+        <div className="hidden md:flex items-center gap-3">
+          <SignedOut>
+            <Button asChild variant="ghost" className="text-slate-600 hover:text-teal-700">
+              <Link href="/sign-in">Sign In</Link>
+            </Button>
+            <Button asChild className="bg-teal-700 hover:bg-teal-800">
+              <Link href="/sign-up">Sign Up</Link>
+            </Button>
+          </SignedOut>
+          <SignedIn>
+            <UserButton
+              afterSignOutUrl="/"
+              appearance={{
+                elements: {
+                  avatarBox: "w-9 h-9",
+                },
+              }}
+            />
+          </SignedIn>
+        </div>
+
+        <button
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="md:hidden flex flex-col gap-1.5 p-2"
+          aria-label="Toggle menu"
+        >
+          <span className={`block w-6 h-0.5 bg-slate-700 transition-all ${menuOpen ? "rotate-45 translate-y-2" : ""}`} />
+          <span className={`block w-6 h-0.5 bg-slate-700 transition-all ${menuOpen ? "opacity-0" : ""}`} />
+          <span className={`block w-6 h-0.5 bg-slate-700 transition-all ${menuOpen ? "-rotate-45 -translate-y-2" : ""}`} />
+        </button>
+      </div>
+
+      {menuOpen && (
+        <div className="md:hidden bg-white px-6 pb-4 shadow-md">
+          <ul className="flex flex-col gap-4">
+            {navLinks.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  className="font-medium text-slate-600 hover:text-teal-700"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <SignedOut>
+            <Button asChild variant="outline" className="mt-2 w-full">
+              <Link href="/sign-in" onClick={() => setMenuOpen(false)}>Sign In</Link>
+            </Button>
+            <Button asChild className="mt-2 w-full bg-teal-700 hover:bg-teal-800">
+              <Link href="/sign-up" onClick={() => setMenuOpen(false)}>Sign Up</Link>
+            </Button>
+          </SignedOut>
+          <SignedIn>
+            <div className="mt-4 flex justify-center">
+              <UserButton afterSignOutUrl="/" />
+            </div>
+          </SignedIn>
+        </div>
+      )}
+    </nav>
+  );
+}
+
+
+--- src/components/Features.tsx ---
+
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+const features = [
+  { icon: "📱", title: "Real-Time Queue Updates", desc: "Patients can view wait times and queue position from their phones. Reduce anxiety and improve patient satisfaction." },
+  { icon: "⚙️", title: "Ontario Health Integration", desc: "Seamlessly integrates with Ontario's healthcare systems. PHIPA compliant and designed for Canadian standards." },
+  { icon: "📊", title: "Analytics Dashboard", desc: "Gain insights into patient flow, peak hours, and staff performance with comprehensive analytics." },
+  { icon: "🔔", title: "Smart Notifications", desc: "Automated SMS and email notifications when it's almost the patient's turn. No more waiting room frustration." },
+  { icon: "👥", title: "Multi-Language Support", desc: "Support for English and French, with easy addition of other languages for diverse Ontario communities." },
+  { icon: "🕐", title: "Appointment Scheduling", desc: "Flexible booking system with walk-in and appointment options. Manage your clinic's schedule effortlessly." },
+];
+
+function FeatureCard({ icon, title, desc, delay }: { icon: string; title: string; desc: string; delay: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); observer.disconnect(); } },
+      { threshold: 0.1 }
+    );
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      style={{ transitionDelay: `${delay}ms` }}
+      className={`bg-white p-8 rounded-2xl border border-slate-200 hover:border-teal-300 hover:shadow-xl transition-all duration-500 cursor-default group overflow-hidden relative ${
+        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
+      }`}
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-teal-50/0 to-teal-50/0 group-hover:from-teal-50/50 group-hover:to-emerald-50/30 transition-all duration-500" />
+      <div className="text-4xl mb-5">{icon}</div>
+      <h3 className="text-lg font-bold text-slate-800 mb-3">{title}</h3>
+      <p className="text-slate-500 leading-relaxed">{desc}</p>
+    </div>
+  );
+}
+
+export default function Features() {
+  return (
+    <section id="features" className="py-24 bg-white">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="text-center max-w-2xl mx-auto mb-16">
+          <span className="inline-block bg-teal-100 text-teal-700 text-xs font-bold uppercase tracking-widest rounded-full px-4 py-1.5 mb-4">
+            Why Choose Us
+          </span>
+          <h2 className="font-serif text-4xl font-bold text-slate-900 mb-4">Built for Ontario Healthcare</h2>
+          <p className="text-slate-500 text-lg">Our platform is designed specifically for the unique needs of Ontario&apos;s healthcare system, ensuring compliance and seamless integration.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {features.map((f, i) => (
+            <FeatureCard key={f.title} {...f} delay={i * 80} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+--- src/components/Sections.tsx ---
+
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+
+// ==================== STATS ====================
+const stats = [
+  { icon: "🏥", value: "200+", label: "Healthcare Facilities" },
+  { icon: "👨‍⚕️", value: "1,500+", label: "Healthcare Providers" },
+  { icon: "📅", value: "2M+", label: "Appointments Managed" },
+  { icon: "⭐", value: "4.9/5", label: "Patient Satisfaction" },
+];
+
+export function Stats() {
+  return (
+    <section className="bg-teal-700 py-16">
+      <div className="max-w-5xl mx-auto px-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+          {stats.map(({ icon, value, label }) => (
+            <div key={label} className="flex flex-col items-center gap-2 group">
+              <span className="text-3xl">{icon}</span>
+              <span className="text-4xl font-bold text-white group-hover:scale-110 transition-transform">{value}</span>
+              <span className="text-teal-100 text-sm">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ==================== SERVICES ====================
+const services = [
+  { title: "Clinic Management", desc: "Complete practice management solution for walk-in clinics and family health teams across Ontario." },
+  { title: "Hospital Queue System", desc: "Enterprise-grade queue management for emergency rooms, outpatient clinics, and diagnostic centers." },
+  { title: "Virtual Queue", desc: "Patients can join queues remotely and receive notifications when it's time to arrive. Perfect for modern healthcare." },
+];
+
+export function Services() {
+  return (
+    <section id="services" className="py-24 bg-slate-50">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="text-center max-w-2xl mx-auto mb-16">
+          <span className="inline-block bg-teal-100 text-teal-700 text-xs font-bold uppercase tracking-widest rounded-full px-4 py-1.5 mb-4">
+            Our Services
+          </span>
+          <h2 className="font-serif text-4xl font-bold text-slate-900 mb-4">Comprehensive Healthcare Solutions</h2>
+          <p className="text-slate-500 text-lg">From small clinics to large hospitals, we have solutions tailored to your needs.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {services.map((s) => (
+            <div key={s.title} className="bg-white rounded-2xl shadow overflow-hidden hover:-translate-y-1.5 hover:shadow-xl transition-all duration-300 group">
+              <div className="h-48 bg-gradient-to-br from-teal-600 to-emerald-400 relative overflow-hidden">
+                <div className="absolute inset-0 opacity-20"
+                  style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='1' fill-rule='evenodd'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/svg%3E\")" }}
+                />
+              </div>
+              <div className="p-6">
+                <h3 className="text-xl font-bold text-slate-800 mb-2">{s.title}</h3>
+                <p className="text-slate-500 mb-4">{s.desc}</p>
+                <a href="#contact" className="text-teal-700 font-semibold text-sm hover:text-teal-900 transition-colors">Learn more →</a>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ==================== TESTIMONIALS ====================
+const testimonials = [
+  { text: '"ONCareQueue has transformed how we manage patient flow. Our wait times have decreased by 40% and patient satisfaction has never been higher."', name: "Dr. James Wilson", title: "Medical Director, Toronto Family Health Team" },
+  { text: '"The integration with our existing systems was seamless. The PHIPA compliance gave us peace of mind, and the support team is fantastic."', name: "Sarah Mitchell", title: "Operations Manager, Ottawa Medical Clinic" },
+  { text: '"Our patients love the SMS notifications. They can run errands instead of sitting in the waiting room. It\'s a game-changer for everyone."', name: "Dr. Linda Chen", title: "Clinic Owner, Hamilton Wellness Center" },
+];
+
+export function Testimonials() {
+  return (
+    <section className="py-24 bg-white">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="text-center max-w-2xl mx-auto mb-16">
+          <span className="inline-block bg-teal-100 text-teal-700 text-xs font-bold uppercase tracking-widest rounded-full px-4 py-1.5 mb-4">
+            Testimonials
+          </span>
+          <h2 className="font-serif text-4xl font-bold text-slate-900">Trusted by Ontario Healthcare</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {testimonials.map((t) => (
+            <div key={t.name} className="bg-white p-8 rounded-2xl border border-slate-200 hover:shadow-xl transition-all duration-300 relative">
+              <div className="absolute top-4 left-6 text-7xl font-serif text-teal-100 leading-none select-none">&ldquo;</div>
+              <div className="text-amber-400 text-lg mb-4">★★★★★</div>
+              <p className="text-slate-600 italic leading-relaxed mb-6">{t.text}</p>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-teal-600 to-emerald-400 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                  {t.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">{t.name}</p>
+                  <p className="text-slate-500 text-xs">{t.title}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ==================== CTA ====================
+export function CTA() {
+  const [email, setEmail] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitted(true);
+    setTimeout(() => setSubmitted(false), 4000);
+    setEmail("");
+  };
+
+  return (
+    <section id="contact" className="py-24 bg-gradient-to-br from-slate-900 via-slate-800 to-teal-900">
+      <div className="max-w-2xl mx-auto px-6 text-center">
+        <h2 className="font-serif text-4xl font-bold text-white mb-4">Ready to Transform Your Practice?</h2>
+        <p className="text-slate-300 text-lg mb-10">
+          Join hundreds of Ontario healthcare providers who trust ONCareQueue to streamline their patient flow.
+        </p>
+        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Enter your email"
+            required
+            className="flex-1 max-w-xs px-5 py-3 rounded-xl border-0 text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-400 text-sm"
+          />
+          <Button
+            type="submit"
+            size="lg"
+            className={`${submitted ? "bg-emerald-500 hover:bg-emerald-500" : "bg-teal-500 hover:bg-teal-400"} text-white transition-all`}
+          >
+            {submitted ? "✓ You're on the list!" : "Request Demo"}
+          </Button>
+        </form>
+        <p className="text-slate-500 text-sm">Free consultation. No commitment required.</p>
+      </div>
+    </section>
+  );
+}
+
+// ==================== FOOTER ====================
+export function Footer() {
+  return (
+    <footer className="bg-slate-900 text-white pt-16 pb-8">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+          <div className="md:col-span-1">
+            <div className="flex items-center gap-2 font-bold text-xl mb-3">
+              <span>🏥</span>
+              <span>ONCareQueue</span>
+            </div>
+            <p className="text-slate-400 text-sm leading-relaxed">Ontario&apos;s leading healthcare queue management solution. Built with care for Canadian healthcare.</p>
+          </div>
+          {[
+            { title: "Product", links: ["Features", "Services", "Pricing", "Security"] },
+            { title: "Company", links: ["About Us", "Careers", "Blog", "Contact"] },
+            { title: "Legal", links: ["Privacy Policy", "Terms of Service", "PHIPA Compliance", "Accessibility"] },
+          ].map(({ title, links }) => (
+            <div key={title}>
+              <h4 className="font-bold text-white mb-4">{title}</h4>
+              <ul className="space-y-2.5">
+                {links.map((l) => (
+                  <li key={l}>
+                    <a href="#" className="text-slate-400 text-sm hover:text-white hover:pl-2 transition-all">{l}</a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <div className="border-t border-slate-800 pt-8 text-center">
+          <p className="text-slate-500 text-sm">© 2026 ONCareQueue. All rights reserved. Made with ❤️ in Ontario, Canada.</p>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+
+--- src/lib/prisma.ts ---
+
+import { PrismaClient } from '@prisma/client'
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined
+}
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient()
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+
+
+--- src/lib/utils.ts ---
+
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+
+--- prisma/schema.prisma ---
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Clinic {
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  phone     String?
+  email     String?
+  timezone  String   @default("America/Toronto")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  queueEntries QueueEntry[]
+  appointments Appointment[]
+}
+
+model Patient {
+  id        String   @id @default(cuid())
+  clerkId   String?  @unique
+  firstName String
+  lastName  String
+  email     String
+  phone     String?
+  language  String   @default("en")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  queueEntries  QueueEntry[]
+  appointments Appointment[]
+}
+
+model QueueEntry {
+  id                    String   @id @default(cuid())
+  clinicId              String
+  patientId             String?
+  patientName           String
+  patientPhone          String?
+  status                String   @default("waiting")
+  checkInTime           DateTime @default(now())
+  estimatedWaitMinutes  Int      @default(0)
+  notes                 String?
+  priority              Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+}
+
+model Appointment {
+  id            String   @id @default(cuid())
+  clinicId      String
+  patientId     String?
+  patientName   String?
+  patientEmail  String?
+  scheduledTime DateTime
+  duration      Int      @default(15)
+  type          String   @default("appointment")
+  status        String   @default("scheduled")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id])
+  patient Patient? @relation(fields: [patientId], references: [id])
+}

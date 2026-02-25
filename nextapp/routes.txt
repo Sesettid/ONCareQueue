@@ -1,0 +1,25 @@
+ONCareQueue - Route Architecture & Security Overview
+
+# Route Architecture
+
+## Public Routes (Patient-Facing)
+- GET / : Landing page and marketing site
+- GET /find-clinic : Clinic locator
+- GET /api/clinics : List all available clinics
+- GET /api/clinics/[clinicId]/queue : Live queue board. Publicly accessible so patients can check their real-time estimated wait times without needing to log in.
+
+## Protected Routes (Staff/Admin-Facing)
+*Secured via Clerk Middleware. Unauthenticated access redirects to /sign-in.*
+- GET /dashboard : Core clinic staff dashboard for queue management
+- POST /api/clinics : Create new clinic profiles
+- POST /api/queue/check-in : Check in a new patient and calculate initial wait
+- PATCH /api/queue-entry/[entryId] : Update patient status (ready, in-progress, completed)
+- DELETE /api/queue-entry/[entryId] : Remove a patient from the queue
+- GET /api/seed : Developer seed script
+
+# Security & PHIPA Compliance Controls
+- Authentication & Authorization: Enforced universally at the edge via Clerk Next.js middleware.
+- Data Minimization: We only collect essential workflow data (first/last name, optional phone). No extended medical history or diagnostics are stored in this microservice.
+- At-Rest Encryption: Data is securely stored using Supabase PostgreSQL which enforces at-rest encryption.
+- Audit Logging: Built-in timestamp tracking (createdAt, updatedAt) via Prisma schema for all queue modifications and patient lifecycles.
+- Network Security: API routes run securely on Vercel's serverless edge, utilizing connection pooling (pgbouncer) for the database.

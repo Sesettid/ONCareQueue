@@ -3,10 +3,10 @@ import { prisma } from '@/lib/prisma'
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ entryId: string }> }
+  { params }: { params: { entryId: string } }
 ) {
   try {
-    const { entryId } = await params
+    const { entryId } = params
     const body = await request.json()
     const { status, notes } = body
 
@@ -32,10 +32,10 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ entryId: string }> }
+  { params }: { params: { entryId: string } }
 ) {
   try {
-    const { entryId } = await params
+    const { entryId } = params
     await prisma.queueEntry.delete({ where: { id: entryId } })
     return NextResponse.json({ success: true })
   } catch (error) {
